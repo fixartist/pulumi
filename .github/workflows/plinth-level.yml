@@ -1,0 +1,139 @@
+name: Plinth-level Infra
+
+# on:
+#   # push:
+#   #   branches:
+#   #     - pipelines
+#   #     - main
+#   # pull_request:
+#   workflow_dispatch:
+#     inputs:
+#       action:
+#         description: 'Action to perform'
+#         required: true
+#         default: 'up'
+#         type: 'choice'
+#         options:
+#           - 'up'
+#           - 'destroy'
+
+on:
+  # push:
+  #   branches:
+  #     - main
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'update'
+        type: 'choice'
+        options:
+          - 'up'
+          - 'destroy'
+          - 'update'
+
+jobs:
+  pulumi:
+    name: Deploy or Destroy with Pulumi
+    runs-on: ubuntu-latest #12021984/pulumi-azure-node
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '18.17.0'
+
+      - name: Install Pulumi CLI
+        run: |
+          curl -fsSL https://get.pulumi.com | sh
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      - name: Install Pulumi SDK
+        run: |
+          npm install -g npm@latest
+          npm i
+
+      - name: Install Azure CLI
+        run: |
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+      - name: Login to Azure
+        run: |
+          az login
+
+      - name: Setup Pulumi
+        uses: pulumi/actions@v3
+        continue-on-error: true # This is because the job failes when there are 0 updates
+        with:
+          command: ${{ github.event.inputs.action }}
+          stack-name: production
+          upsert: true # took this from https://github.com/pulumi/actions/blob/main/action.yml#L82
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: $${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}  # Pass the GitHub PAT as an environment variable
+          
+      - name: Get Pulumi Outputs
+        id: get_pulumi_outputs
+        if: github.event.inputs.action == 'up' || github.event.inputs.action == 'update'
+        run: |
+          echo "client_id=$(pulumi stack output clientId)" >> $GITHUB_ENV
+          echo "client_secret=$(pulumi stack output clientSecret)" >> $GITHUB_ENV
+          echo "tenant_id=$(pulumi stack output tenantId)" >> $GITHUB_ENV
+          echo "auth0_url=$(pulumi stack output appServiceUrl)" >> $GITHUB_ENV
+
+      - name: Update GitHub Repository Secrets for CLIENT_ID
+        uses: action-pack/set-secret@v1
+        if: github.event.inputs.action == 'up' || github.event.inputs.action == 'update'
+        with:
+          name: 'CLIENT_ID'
+          value: ${{ env.client_id }}
+          repository: fixartist/pulumi
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Update GitHub Repository Secrets for CLIENT_SECRET
+        uses: action-pack/set-secret@v1
+        if: github.event.inputs.action == 'up' || github.event.inputs.action == 'update'
+        with:
+          name: 'CLIENT_SECRET'
+          value: ${{ env.client_secret }}
+          repository: fixartist/pulumi
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Update GitHub Repository Secrets for TENANT_ID
+        uses: action-pack/set-secret@v1
+        if: github.event.inputs.action == 'up' || github.event.inputs.action == 'update'
+        with:
+          name: 'TENANT_ID'
+          value: ${{ env.tenant_id }}
+          repository: fixartist/pulumi
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Update GitHub Repository Secrets for Auth0 service
+        uses: action-pack/set-variable@v1.10
+        if: github.event.inputs.action == 'up' || github.event.inputs.action == 'update'
+        with:
+            name: 'AUTH0_SERVICE'
+            value: ${{ env.auth0_url }}
+            repository: fixartist
+            token: ${{ secrets.PAT_TOKEN }}
+            org: true
+            #visibility: 'org'
+
+      # Delete secrets when no longer in use. This is pending.
+      # - name: Delete Secret
+      #   uses: philips-software/Repo-Secret-Manager@main # taken from https://github.com/marketplace/actions/repo-secret-manager
+      #   if: github.event.inputs.action == 'destroy'
+      #   with:
+      #     action: delete
+      #     token: ${{ secrets.PAT_TOKEN }}
+      #     secret-names: CLIENT_ID
+      #     secret-values: ''

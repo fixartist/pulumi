@@ -1,0 +1,14 @@
+{
+    "name": "pulumiInfra",
+    "main": "index.ts",
+    "devDependencies": {
+        "@types/node": "^18",
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "@pulumi/azure": "^5.84.0",
+        "@pulumi/azure-native": "^2.0.0",
+        "@pulumi/azuread": "^5.53.2",
+        "@pulumi/pulumi": "^3.113.0"
+    }
+}
